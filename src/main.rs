@@ -169,33 +169,40 @@ impl Trie {
         u64::from_str_radix(&full_key, 3).unwrap_or(0) * 1000 * 60
     }
 
-    fn insert(&mut self, timestamp: u64) {
-        let hash = timestamp; // Simplified hash function for this example
-        let minutes = timestamp / (1000 * 60);
-        let key = format!("{:b}", minutes); // Using binary representation as a simplification
-        self.hash ^= hash;
-        self.insert_key(&key, hash);
+    pub fn insert(&mut self, timestamp: Timestamp) -> Result<(), TimestampError> {
+        let hash = timestamp.hash(); // Assuming the hash method returns u32
+
+        // Convert the timestamp's millis to a base-3 string. This is a simplification.
+        // You might need a more complex logic to convert millis to base-3.
+        let key = format!("{:b}", timestamp.millis);
+        self.hash ^= hash as u64; // Assuming you're okay with casting u32 to u64
+
+        self.insert_key(&key, hash)
     }
 
-    fn insert_key(&mut self, key: &str, hash: u64) {
+    fn insert_key(&mut self, key: &str, hash: u32) -> Result<(), TimestampError> {
         if key.is_empty() {
-            return;
+            return Ok(());
         }
+
         let child_key = &key[0..1];
         let child = self
             .children
             .entry(child_key.to_string())
             .or_insert_with(Trie::new);
-        child.insert_key(&key[1..], hash);
-        child.hash ^= hash;
+        child.hash ^= hash as u64; // Casting u32 to u64 for hash
+
+        child.insert_key(&key[1..], hash)
     }
 
-    fn build(timestamps: Vec<u64>) -> Trie {
+    fn build(timestamps: Vec<Timestamp>) -> Result<Self, TimestampError> {
         let mut trie = Trie::new();
         for timestamp in timestamps {
-            trie.insert(timestamp);
+            if let Err(error) = trie.insert(timestamp) {
+                return Err(error);
+            }
         }
-        trie
+        Ok(trie)
     }
 
     fn diff(&self, other: &Trie) -> Trie {
@@ -248,20 +255,16 @@ impl Trie {
 }
 
 fn main() {
-    let mut trie1 = Trie::new();
-    trie1.insert(123456789);
-    let mut trie2 = Trie::new();
-    trie2.insert(123000000); // Example usage
-
-    let diff = trie1.diff(&trie2).get_keys();
-    println!("{:?}", diff);
-
     let node = make_client_id();
     println!("Node: {}", node);
-    let mut timestamp = Timestamp::new(1_586_515_200_000, 42, node);
-    println!("Timestamp: {}", timestamp);
+    let timestamp1 = Timestamp::new(1_586_515_200_000, 42, node.clone());
+    let timestamp2 = Timestamp::new(1_586_515_200_000, 43, node);
+    println!("Timestamp1: {}", timestamp1);
+    println!("Timestamp2: {}", timestamp2);
 
-    timestamp.set_millis(1_586_515_200_100);
-    timestamp.set_counter(45);
-    println!("Updated Timestamp: {}", timestamp);
+    let mut trie = Trie::new();
+    trie.insert(timestamp1).unwrap();
+    trie.insert(timestamp2).unwrap();
+
+    trie.debug();
 }
