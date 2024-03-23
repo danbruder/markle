@@ -18,6 +18,6 @@ fn main() {
     trie1.insert(timestamp1);
     trie2.insert(timestamp2);
 
-    let diff = trie1.diff(&trie2).unwrap().to_string();
+    let diff = trie1.diff(&trie2).unwrap();
     println!("Diff: {:#?}", diff);
 }

@@ -15,6 +15,9 @@ pub struct Timestamp {
     node: String,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub struct Epoch(pub i64);
+
 impl Timestamp {
     pub fn new(millis: i64, counter: u16, node: String) -> Self {
         Timestamp {
@@ -35,7 +38,7 @@ impl Timestamp {
         format!("{}-{:04X}-{:016}", time, self.counter, self.node)
     }
 
-    fn millis(&self) -> i64 {
+    pub fn millis(&self) -> i64 {
         self.millis
     }
 
@@ -137,6 +140,33 @@ impl Timestamp {
             counter: self.counter,
             node: self.node.clone(),
         })
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        // let parts: Vec<&str> = s.split('-').collect();
+        // if parts.len() !== 3 {
+        //     return None;
+        // }
+
+        // let time = parts[0];
+        // let counter = parts[1];
+        // let node = parts[2];
+
+        // let time = chrono::DateTime::parse_from_rfc3339(time)
+        //     .map_err(|_| "invalid timestamp format".to_string())?;
+        // let millis = time.timestamp_millis();
+
+        // let counter =
+        //     u16::from_str_radix(counter, 16).map_err(|_| "invalid counter format".to_string())?;
+
+        // Ok(Timestamp {
+        //     millis,
+        //     counter,
+        //     node: node.to_string(),
+        // })
+
+        //TODO
+        None
     }
 }
 

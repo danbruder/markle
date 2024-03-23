@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::timestamp::Timestamp;
+use crate::timestamp::{make_client_id, Epoch, Timestamp};
 
 fn millis_to_base3(mut millis: i64) -> String {
     if millis == 0 {
@@ -18,8 +18,24 @@ fn millis_to_base3(mut millis: i64) -> String {
 
 #[derive(Clone, Debug)]
 pub struct Trie {
-    hash: u64,
+    hash: u32,
     children: BTreeMap<String, Trie>,
+}
+
+/// Key to timestamp
+///
+/// Key is a base 3 representation of the minutes since epoch
+fn key_to_timestamp(key: &str) -> Epoch {
+    let full_key = format!("{:0<16}", key);
+    let minutes = i64::from_str_radix(&full_key, 3).unwrap_or(0);
+    let ms = minutes * 1000 * 60;
+    Epoch(ms)
+}
+
+fn timestamp_to_key(ts: Timestamp) -> String {
+    let millis = ts.millis();
+    let minutes = millis / (1000 * 60);
+    millis_to_base3(minutes)
 }
 
 impl Trie {
@@ -34,24 +50,15 @@ impl Trie {
         self.children.keys().cloned().collect()
     }
 
-    fn key_to_timestamp(key: &str) -> i64 {
-        println!("key: {}", key);
-        let full_key = format!("{:0<16}", key);
-        println!("full_key: {}", full_key);
-        let millis = i64::from_str_radix(&full_key, 3).unwrap_or(0) * 1000 * 60;
-        millis / 1000
-    }
-
     pub fn insert(&mut self, timestamp: Timestamp) {
         // Want to be specific to the TS
         let hash = timestamp.hash();
 
-        let minutes = timestamp.ts_minutes();
-        let key = millis_to_base3(minutes);
+        let key = timestamp_to_key(timestamp);
         println!("key: {}", key);
         println!("hash: {}", hash);
         println!("self.hash: {}", self.hash);
-        self.hash ^= hash as u64; // Assuming you're okay with casting u32 to u64
+        self.hash ^= hash; // Assuming you're okay with casting u32 to u64
         println!("self.hash ^ hash: {}", self.hash);
 
         self.insert_key(&key, hash)
@@ -68,7 +75,7 @@ impl Trie {
             .children
             .entry(child_key.to_string())
             .or_insert_with(Trie::new);
-        child.hash ^= hash as u64; // Casting u32 to u64 for hash
+        child.hash ^= hash;
 
         child.insert_key(&key[1..], hash)
     }
@@ -81,10 +88,10 @@ impl Trie {
         trie
     }
 
-    pub fn diff<'a>(&self, other: &'a Trie) -> Option<i64> {
+    pub fn diff<'a>(&self, other: &'a Trie) -> Option<Epoch> {
         let mut path = Vec::new();
         if let Some(divergence_path) = self.diff_recursive(other, &mut path) {
-            Some(Trie::key_to_timestamp(&divergence_path.join("")))
+            Some(key_to_timestamp(&divergence_path.join("")))
         } else {
             None
         }
@@ -160,66 +167,29 @@ impl Trie {
 mod test {
     use super::*;
 
-    // #[test]
-    // fn test_simple_insert_key() {
-    //     let mut trie1 = Trie::new();
-    //     let mut trie2 = Trie::new();
-    //     trie1.insert_key("112", 1);
-    //     trie2.insert_key("111", 1);
-
-    //     let got = trie1.diff(&trie2).unwrap().to_string();
-    //     let want = want.to_string();
-    //     assert_eq!(got, want);
-    // }
-
-    // #[test]
-    // fn test_insert_hash() {
-    //     let now = 1711220570;
-    //     let node = make_client_id();
-    //     let timestamp = Timestamp::new(now, 0, node.clone());
-
-    //     let mut trie = Trie::new();
-    //     trie.insert(timestamp.clone()).unwrap();
-
-    //     assert_eq!(trie.hash - 1, timestamp.hash() as u64);
-    // }
-
-    // #[test]
-    // fn test_millis_to_base3() {
-    //     let millis = 1_000_000;
-    //     let got = millis_to_base3(millis);
-    //     let want = "1000000000".to_string();
-    //     assert_eq!(got, want);
-    // }
-
-    // #[test]
-    // fn test_diff_is_some() {
-    //     let now = 1711221133000;
-    //     let before = 1711221133001;
-    //     let want = 1;
-    //     let node = make_client_id();
-    //     let timestamp1 = Timestamp::new(now, 0, node.clone());
-    //     let timestamp2 = Timestamp::new(before, 0, node.clone());
-
-    //     let mut trie1 = Trie::new();
-    //     let mut trie2 = Trie::new();
-    //     trie1.insert(timestamp1);
-    //     trie2.insert(timestamp2);
-
-    //     let got = trie1.diff(&trie2).unwrap().to_string();
-    //     let want = want.to_string();
-    //     assert_eq!(got, want);
-    // }
-
-    /*
     #[test]
-    fn test_hash_of_same_ts() {
-        let now = Utc::now().timestamp_millis();
-        let node = make_client_id();
-        let timestamp1 = Timestamp::new(now, 0, node.clone());
-        let timestamp2 = Timestamp::new(now, 0, node.clone());
+    fn test_key_to_timestamp() {
+        let got = key_to_timestamp("0");
+        let want = Epoch(0);
+        assert_eq!(got, want);
 
-        assert_eq!(timestamp1.hash(), timestamp2.hash());
+        let got = key_to_timestamp("1222022111000201");
+        let want = Epoch(1699999980000);
+        assert_eq!(got, want);
     }
-    */
+
+    #[test]
+    fn test_ts_to_key() {
+        let key = "1222022111000201";
+        let ts = Timestamp::new(1699999980000, 0, make_client_id());
+        let got = timestamp_to_key(ts);
+        let want = key;
+        assert_eq!(got, want);
+
+        let key = "2222222222222222";
+        let ts = Timestamp::new(2582803200000, 0, make_client_id());
+        let got = timestamp_to_key(ts);
+        let want = key;
+        assert_eq!(got, want);
+    }
 }
