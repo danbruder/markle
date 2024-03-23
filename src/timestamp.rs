@@ -68,11 +68,11 @@ impl Timestamp {
         murmur3_32(&mut buffer, 0).unwrap_or(0)
     }
 
-    pub fn send(clock: &mut Timestamp) -> Result<Self, TimestampError> {
-        let phys = Utc::now().timestamp_millis();
+    pub fn send(&mut self, phys: i64) -> Result<Self, TimestampError> {
+        //let phys = Utc::now().timestamp_millis();
 
-        let l_old = clock.millis;
-        let c_old = clock.counter;
+        let l_old = self.millis;
+        let c_old = self.counter;
 
         let l_new = std::cmp::max(l_old, phys);
         let c_new = if l_old == l_new {
@@ -85,14 +85,10 @@ impl Timestamp {
             return Err(TimestampError::ClockDriftError(l_new, phys, MAX_DRIFT));
         }
 
-        clock.set_millis(l_new);
-        clock.set_counter(c_new);
+        self.set_millis(l_new);
+        self.set_counter(c_new);
 
-        Ok(Timestamp::new(
-            clock.millis,
-            clock.counter,
-            clock.node.clone(),
-        ))
+        Ok(Timestamp::new(self.millis, self.counter, self.node.clone()))
     }
 }
 
@@ -104,7 +100,7 @@ impl fmt::Display for Timestamp {
 }
 
 // Errors related to timestamp processing
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum TimestampError {
     ClockDriftError(i64, i64, i64),
     OverflowError,
@@ -174,5 +170,45 @@ mod test {
             ts.to_string(),
             "2024-03-23T22:10:55.000Z-FFFE-1234123412341234"
         );
+    }
+
+    #[test]
+    fn test_send_overflow() {
+        let mut ts = Timestamp::new(1, 0xFFFF, "1234123412341234".to_string());
+
+        let got = ts.send(1).err().unwrap();
+        let want = TimestampError::OverflowError;
+
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_send_drift() {
+        let mut ts = Timestamp::new(MAX_DRIFT + 1, 0x0, "1234123412341234".to_string());
+
+        let got = ts.send(0).err().unwrap();
+        let want = TimestampError::ClockDriftError(MAX_DRIFT + 1, 0, MAX_DRIFT);
+
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_send_ok_counter() {
+        let mut ts = Timestamp::new(1, 0x0, "1234123412341234".to_string());
+
+        let got = ts.send(1).unwrap();
+        let want = Timestamp::new(1, 0x1, "1234123412341234".to_string());
+
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_send_ok_phys() {
+        let mut ts = Timestamp::new(1, 0x0, "1234123412341234".to_string());
+
+        let got = ts.send(2).unwrap();
+        let want = Timestamp::new(2, 0x0, "1234123412341234".to_string());
+
+        assert_eq!(got, want);
     }
 }
