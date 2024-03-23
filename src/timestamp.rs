@@ -90,6 +90,54 @@ impl Timestamp {
 
         Ok(Timestamp::new(self.millis, self.counter, self.node.clone()))
     }
+
+    pub fn recv(&mut self, msg: &Timestamp, phys: i64) -> Result<Timestamp, TimestampError> {
+        // Unpack the message wall time/counter
+        let l_msg = msg.millis;
+        let c_msg = msg.counter;
+
+        // Assert the node id and remote clock drift
+        if msg.node == self.node {
+            return Err(TimestampError::DuplicateNodeError(self.node.clone()));
+        }
+
+        if l_msg > phys && l_msg - phys > MAX_DRIFT {
+            return Err(TimestampError::ClockDriftError(l_msg, phys, MAX_DRIFT));
+        }
+
+        // Unpack the clock.timestamp logical time and counter
+        let l_old = self.millis;
+        let c_old = self.counter;
+
+        // Calculate the next logical time and counter
+        let l_new = std::cmp::max(std::cmp::max(l_old, phys), l_msg);
+        let c_new = if l_new == l_old && l_new == l_msg {
+            std::cmp::max(c_old, c_msg)
+                .checked_add(1)
+                .ok_or(TimestampError::OverflowError)?
+        } else if l_new == l_old {
+            c_old.checked_add(1).ok_or(TimestampError::OverflowError)?
+        } else if l_new == l_msg {
+            c_msg.checked_add(1).ok_or(TimestampError::OverflowError)?
+        } else {
+            0
+        };
+
+        // Check the result for drift and counter overflow
+        if l_new > phys && l_new - phys > MAX_DRIFT {
+            return Err(TimestampError::ClockDriftError(l_new, phys, MAX_DRIFT));
+        }
+
+        // Repack the logical time/counter
+        self.millis = l_new;
+        self.counter = c_new;
+
+        Ok(Timestamp {
+            millis: self.millis,
+            counter: self.counter,
+            node: self.node.clone(),
+        })
+    }
 }
 
 // Implement Display for Timestamp to enable easy printing
@@ -101,7 +149,7 @@ impl fmt::Display for Timestamp {
 
 // Errors related to timestamp processing
 #[derive(Debug, PartialEq)]
-enum TimestampError {
+pub enum TimestampError {
     ClockDriftError(i64, i64, i64),
     OverflowError,
     DuplicateNodeError(String),
@@ -210,5 +258,33 @@ mod test {
         let want = Timestamp::new(2, 0x0, "1234123412341234".to_string());
 
         assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_recv_duplicate_node() {
+        let node = "1234123412341234".to_string();
+        let mut ts = Timestamp::new(1, 0x0, node.clone());
+        let msg = Timestamp::new(1, 0x0, node.clone());
+
+        let got = ts.recv(&msg, 1).err().unwrap();
+        let want = TimestampError::DuplicateNodeError(node);
+
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_recv_drift() {
+        let mut ts = Timestamp::new(1, 0x0, make_client_id());
+        let msg = Timestamp::new(MAX_DRIFT + 1, 0x0, make_client_id());
+
+        let got = ts.recv(&msg, 0).err().unwrap();
+        let want = TimestampError::ClockDriftError(MAX_DRIFT + 1, 0, MAX_DRIFT);
+
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_recv_max_overflow() {
+        //unimplemented!();
     }
 }
