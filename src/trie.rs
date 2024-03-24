@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::timestamp::{make_client_id, Epoch, Timestamp};
 use chrono::{DateTime, Utc};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Trie {
     hash: u32,
     children: HashMap<String, Trie>,
@@ -26,31 +26,22 @@ impl Trie {
         let hash = timestamp.hash();
 
         let key = timestamp_to_key(timestamp);
-        println!("key: {}", key);
-        println!("            hash: {:032b}", hash);
-        println!("       self.hash: {:032b}", self.hash);
         self.hash = self.hash ^ hash;
-        println!("self.hash ^ hash: {:032b}", self.hash);
 
         self.insert_key(&key, hash)
     }
 
     fn insert_key(&mut self, key: &str, hash: u32) {
-        println!("Inserting key: {}", key);
         if key.is_empty() {
             return;
         }
 
-        //println!(" in insert_key key: {}", key);
         let child_key = &key[0..1];
         let child = self
             .children
             .entry(child_key.to_string())
             .or_insert_with(Trie::new);
-        println!("             hash: {:032b}", hash);
-        println!("       child.hash: {:032b}", child.hash);
         child.hash = child.hash ^ hash;
-        println!("child.hash ^ hash: {:032b}", child.hash);
 
         child.insert_key(&key[1..], hash)
     }
@@ -63,6 +54,14 @@ impl Trie {
         trie
     }
 
+    fn prune(&mut self, timestamp: u32) {
+        unimplemented!()
+    }
+
+    fn prune_key(&mut self, key: &str, hash: u32) {
+        unimplemented!()
+    }
+
     pub fn diff<'a>(&self, other: &'a Trie) -> Option<DateTime<Utc>> {
         let mut path = Vec::new();
         if let Some(divergence_path) = self.diff_recursive(other, &mut path) {
@@ -72,51 +71,56 @@ impl Trie {
         }
     }
 
+    // find last time the two trees were equal, their divergent point
     fn diff_recursive<'a>(
         &self,
         other: &'a Trie,
         path: &'a mut Vec<String>,
     ) -> Option<Vec<String>> {
-        // Same
+        // There is no divergent path
         if self.hash == other.hash {
             return None;
         }
 
-        for (key, child) in &self.children {
-            println!("key: {}", key);
-            if let Some(other_child) = other.children.get(key) {
-                path.push(key.clone());
-                if child.hash != other_child.hash {
-                    // Divergence found, return the path to this point.
-                    println!(
-                        "child.hash: {} != other_child.hash: {}",
-                        child.hash, other_child.hash
-                    );
-                    return Some(path.clone());
-                } else if let Some(divergence_path) = child.diff_recursive(other_child, path) {
-                    println!("from recurse: {:?}", divergence_path);
-                    // Recurse deeper into the structure.
-                    return Some(divergence_path);
+        let mut keys: BTreeSet<String> = BTreeSet::from_iter(self.get_keys());
+        keys.extend(other.get_keys());
+
+        let mut diff_key = None;
+
+        for key in keys.iter() {
+            let child = self.children.get(key);
+            let other_child = other.children.get(key);
+
+            match (child, other_child) {
+                (Some(c), Some(oc)) => {
+                    if c.hash != oc.hash {
+                        diff_key = Some(key.clone());
+                        break;
+                    }
                 }
-                path.pop(); // Backtrack as this path did not lead to divergence.
-            } else {
-                // Key exists in `self` but not in `other`, indicating a divergence.
-                println!("missing key: {} in other: {:?}", key, other);
-                path.push(key.clone());
-                return Some(path.clone());
+                (Some(_), None) => {
+                    diff_key = Some(key.clone());
+                    break;
+                }
+                (None, Some(_)) => {
+                    diff_key = Some(key.clone());
+                    break;
+                }
+                _ => {}
             }
         }
 
-        // No divergence found in the traversed paths.
-        None
-    }
-
-    fn prune(&mut self, timestamp: u32) {
-        unimplemented!()
-    }
-
-    fn prune_key(&mut self, key: &str, hash: u32) {
-        unimplemented!()
+        if let Some(dk) = diff_key {
+            path.push(dk.clone());
+            match (self.children.get(&dk), other.children.get(&dk)) {
+                (Some(c), Some(oc)) => c.diff_recursive(oc, path),
+                (Some(c), None) => c.diff_recursive(&Trie::new(), path),
+                (None, Some(oc)) => oc.diff_recursive(&Trie::new(), path),
+                (None, None) => Trie::new().diff_recursive(&Trie::new(), path),
+            }
+        } else {
+            Some(path.clone())
+        }
     }
 }
 
@@ -149,12 +153,14 @@ fn key_to_timestamp(key: &str) -> DateTime<Utc> {
 fn timestamp_to_key(ts: Timestamp) -> String {
     let millis = ts.millis();
     let minutes = millis / (1000 * 60);
-    to_base3(minutes)
+    let b3 = to_base3(minutes);
+    format!("{:0>16}", b3)
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+    use maplit::hashmap;
 
     #[test]
     fn test_key_to_timestamp() {
@@ -182,29 +188,38 @@ mod test {
         assert_eq!(got, want);
     }
 
+    // #[test]
+    // fn test_diff_same() {
+    //     let minute = 1000 * 60;
+    //     let ts1 = Timestamp::new(10 * minute, 0, make_client_id());
+    //     let ts2 = Timestamp::new(20 * minute, 0, make_client_id());
+
+    //     println!("TS1: {:?}", timestamp_to_key(ts1.clone()));
+    //     println!("TS2: {:?}", timestamp_to_key(ts2.clone()));
+
+    //     let trie1 = Trie::build(vec![ts2.clone(), ts1.clone()]);
+    //     let trie2 = Trie::build(vec![ts2.clone(), ts1.clone()]);
+
+    //     let got = trie1.diff(&trie2);
+    //     let want = Timestamp::new(0, 0, make_client_id()).into();
+    //     assert_eq!(got, want);
+    // }
+
     #[test]
-    fn test_diff() {
-        use chrono::DateTime;
+    fn test_find_convergence() {
+        let minute = 1000 * 60;
+        let make_ts = |m: i64| Timestamp::new(m * minute, 0, make_client_id());
+        let ts1 = make_ts(1);
+        let ts2 = make_ts(2);
+        let ts3 = make_ts(3);
+        let ts4 = make_ts(4);
+        let ts5 = make_ts(5);
 
-        let time1 = DateTime::parse_from_rfc3339("2022-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let time2 = DateTime::parse_from_rfc3339("2021-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let time3 = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let ts1 = Timestamp::new(time1.timestamp_millis(), 0, make_client_id());
-        let ts2 = Timestamp::new(time2.timestamp_millis(), 0, make_client_id());
-        //let ts3 = Timestamp::new(time3.timestamp_millis(), 0, make_client_id());
-
-        let trie1 = Trie::build(vec![ts1.clone(), ts2.clone()]);
-        let trie2 = Trie::build(vec![]);
+        let trie1 = Trie::build(vec![ts4.clone(), ts3.clone(), ts1.clone()]);
+        let trie2 = Trie::build(vec![ts5, ts4, ts2.clone(), ts1]);
 
         let got = trie1.diff(&trie2);
-        // Earliest time they were equal
-        let want = Some(time2);
+        let want = Some(ts2.into());
         assert_eq!(got, want);
     }
 }

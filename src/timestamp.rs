@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io::Cursor;
 
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use murmur3::murmur3_32;
 use uuid::Uuid;
 
@@ -174,6 +174,12 @@ impl Timestamp {
 impl fmt::Display for Timestamp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.to_string())
+    }
+}
+
+impl From<Timestamp> for DateTime<Utc> {
+    fn from(ts: Timestamp) -> Self {
+        DateTime::<Utc>::from_timestamp_millis(ts.millis).unwrap()
     }
 }
 
