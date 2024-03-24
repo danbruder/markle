@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.35"
+maplit = "1.0.2"
 murmur3 = "0.5.2"
 uuid = { version = "0.8", features = ["v4"] }
 

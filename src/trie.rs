@@ -1,48 +1,19 @@
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use crate::timestamp::{make_client_id, Epoch, Timestamp};
-
-fn millis_to_base3(mut millis: i64) -> String {
-    if millis == 0 {
-        return "0".to_string();
-    }
-
-    let mut base3 = Vec::new();
-    while millis > 0 {
-        base3.push((millis % 3).to_string());
-        millis /= 3;
-    }
-    base3.reverse();
-    base3.join("")
-}
+use chrono::{DateTime, Utc};
 
 #[derive(Clone, Debug)]
 pub struct Trie {
     hash: u32,
-    children: BTreeMap<String, Trie>,
-}
-
-/// Key to timestamp
-///
-/// Key is a base 3 representation of the minutes since epoch
-fn key_to_timestamp(key: &str) -> Epoch {
-    let full_key = format!("{:0<16}", key);
-    let minutes = i64::from_str_radix(&full_key, 3).unwrap_or(0);
-    let ms = minutes * 1000 * 60;
-    Epoch(ms)
-}
-
-fn timestamp_to_key(ts: Timestamp) -> String {
-    let millis = ts.millis();
-    let minutes = millis / (1000 * 60);
-    millis_to_base3(minutes)
+    children: HashMap<String, Trie>,
 }
 
 impl Trie {
     pub fn new() -> Trie {
         Trie {
             hash: 0,
-            children: BTreeMap::new(),
+            children: HashMap::new(),
         }
     }
 
@@ -56,31 +27,35 @@ impl Trie {
 
         let key = timestamp_to_key(timestamp);
         println!("key: {}", key);
-        println!("hash: {}", hash);
-        println!("self.hash: {}", self.hash);
-        self.hash ^= hash; // Assuming you're okay with casting u32 to u64
-        println!("self.hash ^ hash: {}", self.hash);
+        println!("            hash: {:032b}", hash);
+        println!("       self.hash: {:032b}", self.hash);
+        self.hash = self.hash ^ hash;
+        println!("self.hash ^ hash: {:032b}", self.hash);
 
         self.insert_key(&key, hash)
     }
 
     fn insert_key(&mut self, key: &str, hash: u32) {
+        println!("Inserting key: {}", key);
         if key.is_empty() {
             return;
         }
 
-        println!(" in insert_key key: {}", key);
+        //println!(" in insert_key key: {}", key);
         let child_key = &key[0..1];
         let child = self
             .children
             .entry(child_key.to_string())
             .or_insert_with(Trie::new);
-        child.hash ^= hash;
+        println!("             hash: {:032b}", hash);
+        println!("       child.hash: {:032b}", child.hash);
+        child.hash = child.hash ^ hash;
+        println!("child.hash ^ hash: {:032b}", child.hash);
 
         child.insert_key(&key[1..], hash)
     }
 
-    fn build(timestamps: Vec<Timestamp>) -> Self {
+    pub fn build(timestamps: Vec<Timestamp>) -> Self {
         let mut trie = Trie::new();
         for timestamp in timestamps {
             trie.insert(timestamp);
@@ -88,7 +63,7 @@ impl Trie {
         trie
     }
 
-    pub fn diff<'a>(&self, other: &'a Trie) -> Option<Epoch> {
+    pub fn diff<'a>(&self, other: &'a Trie) -> Option<DateTime<Utc>> {
         let mut path = Vec::new();
         if let Some(divergence_path) = self.diff_recursive(other, &mut path) {
             Some(key_to_timestamp(&divergence_path.join("")))
@@ -119,11 +94,10 @@ impl Trie {
                     );
                     return Some(path.clone());
                 } else if let Some(divergence_path) = child.diff_recursive(other_child, path) {
-                    println!("found it: {:?}", divergence_path);
+                    println!("from recurse: {:?}", divergence_path);
                     // Recurse deeper into the structure.
                     return Some(divergence_path);
                 }
-                println!("walking back");
                 path.pop(); // Backtrack as this path did not lead to divergence.
             } else {
                 // Key exists in `self` but not in `other`, indicating a divergence.
@@ -132,35 +106,50 @@ impl Trie {
                 return Some(path.clone());
             }
         }
-        None // No divergence found in the traversed paths.
+
+        // No divergence found in the traversed paths.
+        None
     }
 
-    fn prune(&mut self, timestamp: u64) {
-        let hash = timestamp; // Simplified hash function for this example
-        let minutes = timestamp / (1000 * 60);
-        let key = format!("{:b}", minutes); // Using binary representation as a simplification
-        self.hash ^= hash;
-        self.prune_key(&key, hash);
+    fn prune(&mut self, timestamp: u32) {
+        unimplemented!()
     }
 
-    fn prune_key(&mut self, key: &str, hash: u64) {
-        if key.is_empty() {
-            return;
-        }
-        let child_key = &key[0..1];
-        let child = self.children.get_mut(child_key);
-        if let Some(child) = child {
-            child.prune_key(&key[1..], hash);
-            if child.children.is_empty() {
-                self.children.remove(child_key);
-            }
-        }
-        self.hash ^= hash;
+    fn prune_key(&mut self, key: &str, hash: u32) {
+        unimplemented!()
+    }
+}
+
+/// To Base3
+fn to_base3(mut input: i64) -> String {
+    if input == 0 {
+        return "0".to_string();
     }
 
-    fn debug(&self) {
-        println!("{:#?}", self);
+    let mut base3 = Vec::new();
+    while input > 0 {
+        base3.push((input % 3).to_string());
+        input /= 3;
     }
+    base3.reverse();
+    base3.join("")
+}
+
+/// Key to timestamp
+///
+/// Key is a base 3 representation of the minutes since epoch
+fn key_to_timestamp(key: &str) -> DateTime<Utc> {
+    let full_key = format!("{:0<16}", key);
+    let minutes = i64::from_str_radix(&full_key, 3).unwrap_or(0);
+    let ms = minutes * 1000 * 60;
+    DateTime::from_timestamp_millis(ms).unwrap()
+}
+
+/// Timestamp to key
+fn timestamp_to_key(ts: Timestamp) -> String {
+    let millis = ts.millis();
+    let minutes = millis / (1000 * 60);
+    to_base3(minutes)
 }
 
 #[cfg(test)]
@@ -170,11 +159,11 @@ mod test {
     #[test]
     fn test_key_to_timestamp() {
         let got = key_to_timestamp("0");
-        let want = Epoch(0);
+        let want = DateTime::from_timestamp_millis(0).unwrap();
         assert_eq!(got, want);
 
         let got = key_to_timestamp("1222022111000201");
-        let want = Epoch(1699999980000);
+        let want = DateTime::from_timestamp_millis(1699999980000).unwrap();
         assert_eq!(got, want);
     }
 
@@ -190,6 +179,32 @@ mod test {
         let ts = Timestamp::new(2582803200000, 0, make_client_id());
         let got = timestamp_to_key(ts);
         let want = key;
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn test_diff() {
+        use chrono::DateTime;
+
+        let time1 = DateTime::parse_from_rfc3339("2022-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let time2 = DateTime::parse_from_rfc3339("2021-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let time3 = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let ts1 = Timestamp::new(time1.timestamp_millis(), 0, make_client_id());
+        let ts2 = Timestamp::new(time2.timestamp_millis(), 0, make_client_id());
+        //let ts3 = Timestamp::new(time3.timestamp_millis(), 0, make_client_id());
+
+        let trie1 = Trie::build(vec![ts1.clone(), ts2.clone()]);
+        let trie2 = Trie::build(vec![]);
+
+        let got = trie1.diff(&trie2);
+        // Earliest time they were equal
+        let want = Some(time2);
         assert_eq!(got, want);
     }
 }
