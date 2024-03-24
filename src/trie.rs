@@ -188,22 +188,19 @@ mod test {
         assert_eq!(got, want);
     }
 
-    // #[test]
-    // fn test_diff_same() {
-    //     let minute = 1000 * 60;
-    //     let ts1 = Timestamp::new(10 * minute, 0, make_client_id());
-    //     let ts2 = Timestamp::new(20 * minute, 0, make_client_id());
+    #[test]
+    fn test_diff_same() {
+        let minute = 1000 * 60;
+        let ts1 = Timestamp::new(10 * minute, 0, make_client_id());
+        let ts2 = Timestamp::new(20 * minute, 0, make_client_id());
 
-    //     println!("TS1: {:?}", timestamp_to_key(ts1.clone()));
-    //     println!("TS2: {:?}", timestamp_to_key(ts2.clone()));
+        let trie1 = Trie::build(vec![ts2.clone(), ts1.clone()]);
+        let trie2 = Trie::build(vec![ts2.clone(), ts1.clone()]);
 
-    //     let trie1 = Trie::build(vec![ts2.clone(), ts1.clone()]);
-    //     let trie2 = Trie::build(vec![ts2.clone(), ts1.clone()]);
-
-    //     let got = trie1.diff(&trie2);
-    //     let want = Timestamp::new(0, 0, make_client_id()).into();
-    //     assert_eq!(got, want);
-    // }
+        let got = trie1.diff(&trie2);
+        let want = None;
+        assert_eq!(got, want);
+    }
 
     #[test]
     fn test_find_convergence() {
